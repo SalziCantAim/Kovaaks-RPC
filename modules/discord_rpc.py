@@ -2,7 +2,7 @@ import os
 import json
 from pypresence import Presence
 
-CLIENT_ID = '1321990331083784202'
+CLIENT_ID = 'DiscordClientID'
 
 
 def get_playlist_share_code(installation_path):
