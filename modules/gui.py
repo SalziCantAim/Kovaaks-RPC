@@ -105,6 +105,13 @@ class MainWindow(ctk.CTk):
             online_frame, text="Show online scenario highscores in Discord RPC",
             variable=self.show_online_var)
         self.cb_online.pack(pady=5, padx=20, anchor="w")
+
+        self.online_only_var = ctk.BooleanVar(value=self.settings.get("online_only_scenarios", False))
+        self.cb_online_only = ctk.CTkCheckBox(
+            online_frame, text="Only show scenarios that are available online (exact match required)",
+            variable=self.online_only_var)
+        self.cb_online_only.pack(pady=5, padx=20, anchor="w")
+
         self.update_online_checkbox_state()
 
         path_frame = ctk.CTkFrame(scrollable_frame)
@@ -165,6 +172,7 @@ class MainWindow(ctk.CTk):
         self.settings["start_in_tray"] = self.start_tray_var.get()
         self.settings["webapp_username"] = self.webapp_entry.get().strip()
         self.settings["show_online_scores"] = self.show_online_var.get()
+        self.settings["online_only_scenarios"] = self.online_only_var.get()
         self.settings["installation_path"] = self.install_entry.get().strip()
         self.settings["steam_path"] = self.steam_entry.get().strip()
         self.settings["start_with_windows"] = self.start_with_windows_var.get()

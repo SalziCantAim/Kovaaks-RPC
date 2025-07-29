@@ -4,6 +4,7 @@ import sys
 import winreg
 import customtkinter as ctk
 from tkinter import filedialog
+import subprocess
 
 SETTINGS_FILE = "settings.json"
 CONFIG_FILE = "checked_files.json"
@@ -15,7 +16,8 @@ DEFAULT_SETTINGS = {
     "start_with_windows": False,
     "webapp_username": "",
     "show_online_scores": False,
-    "start_in_tray": False
+    "start_in_tray": False,
+    "online_only_scenarios": False
 }
 
 

@@ -7,10 +7,13 @@ import psutil
 import pystray
 from PIL import Image
 
-from modules.config import load_settings, load_or_create_config, save_config, initialize_installation_path, get_resource_path
-from modules.kovaaks_utils import is_kovaaks_running, get_current_scenario, find_initial_scores, find_fight_time_and_score
+from modules.config import load_settings, load_or_create_config, save_config, initialize_installation_path, \
+    get_resource_path, save_settings
+from modules.kovaaks_utils import is_kovaaks_running, get_current_scenario, find_initial_scores, \
+    find_fight_time_and_score
 from modules.online_api import OnlineScoreAPI
 from modules.discord_rpc import CLIENT_ID, update_presence
+from modules.gui import MainWindow
 
 
 def load_icon():
@@ -27,6 +30,7 @@ def load_icon():
 
 class SystemTrayApp:
     def __init__(self):
+        self.online_scores = {}
         self.settings = load_settings()
         self.installation_path = None
         self.config = None
@@ -41,6 +45,7 @@ class SystemTrayApp:
         self.start_time = None
         self.online_api = OnlineScoreAPI()
         self.scenario_played = False
+        self.online_scenario_cache = {}
 
         self.initialize_paths()
         self.create_tray_icon()
@@ -49,7 +54,7 @@ class SystemTrayApp:
         image = load_icon()
 
         menu = pystray.Menu(
-            pystray.MenuItem("Show Main Window", self.show_main_window),
+            pystray.MenuItem("Show Main Window", self.show_main_window, default=True),
             pystray.MenuItem("Start RPC", self.start_rpc, enabled=lambda item: not self.rpc_running),
             pystray.MenuItem("Stop RPC", self.stop_rpc, enabled=lambda item: self.rpc_running),
             pystray.Menu.SEPARATOR,
@@ -60,7 +65,6 @@ class SystemTrayApp:
 
     def show_main_window(self):
         def run_main():
-            from gui import MainWindow
             app = MainWindow(self.settings, self)
             app.mainloop()
 
@@ -93,6 +97,39 @@ class SystemTrayApp:
 
             time.sleep(5)
 
+    def is_scenario_allowed(self, scenario_name):
+
+        if not self.settings.get("online_only_scenarios", False):
+            return True
+
+
+        if not scenario_name or scenario_name == "Unknown Scenario":
+            return False
+
+
+        if scenario_name in self.online_scenario_cache:
+            return self.online_scenario_cache[scenario_name]
+
+
+        try:
+            print(f"Checking online availability for scenario: {scenario_name}")
+            is_available = self.online_api.is_scenario_available_online(
+                self.settings.get("webapp_username"),
+                scenario_name
+            )
+
+            self.online_scenario_cache[scenario_name] = is_available
+
+            if is_available:
+                print(f"Scenario '{scenario_name}' is available online")
+            else:
+                print(f"Scenario '{scenario_name}' is NOT available online - will be filtered out")
+
+            return is_available
+        except Exception as e:
+            print(f"Error checking scenario availability for '{scenario_name}': {e}")
+            return True
+
     def start_rpc(self):
         if self.rpc_running:
             return
@@ -103,8 +140,16 @@ class SystemTrayApp:
             self.rpc_running = True
             self.start_time = time.time()
             self.scenario_played = False
-            print("Discord RPC started")
 
+            if self.settings.get("show_online_scores") and self.settings.get("webapp_username") and self.settings.get("online_only_scenarios"):
+                print("Please wait for a few seconds! Loading online scenarios...")
+
+            if self.settings.get("show_online_scores") and self.settings.get("webapp_username"):
+                self.online_scores = self.online_api.fetch_user_scenario_scores(
+                    self.settings.get("webapp_username")
+                )
+
+            print("Discord RPC started")
             rpc_thread = threading.Thread(target=self.rpc_update_loop, daemon=True)
             rpc_thread.start()
 
@@ -127,18 +172,23 @@ class SystemTrayApp:
     def rpc_update_loop(self):
         while self.rpc_running and is_kovaaks_running():
             try:
-                scenario_name = get_current_scenario()
+                raw_name = get_current_scenario()
+                allowed = self.is_scenario_allowed(raw_name)
+                display_name = raw_name if allowed else "Unknown Scenario"
 
-                if scenario_name != self.current_scenario:
-                    if self.current_scenario is not None:
-                        print(f"Switching to new scenario: {scenario_name}")
-                    self.current_scenario = scenario_name
-                    self.initialize_scenario_data(scenario_name)
-                    self.scenario_played = False
-                    self.session_highscore = 0
+                if display_name != self.current_scenario:
+                    self.current_scenario = display_name
+                    if allowed:
+                        stats_dir = os.path.join(self.installation_path, "stats")
+                        self.highscore, new_files = find_initial_scores(raw_name, stats_dir)
+                        self.checked_files.update(new_files)
+                        self.scenario_played = False
+                        self.session_highscore = 0
+                    else:
+                        self.highscore = 0
+                        self.session_highscore = 0
 
-                if scenario_name and scenario_name != "Unknown Scenario":
-                    self.update_presence(scenario_name)
+                self.update_presence(display_name, allowed, raw_name)
 
             except Exception as e:
                 print(f"Error in RPC update loop: {e}")
@@ -148,40 +198,58 @@ class SystemTrayApp:
         if self.rpc_running:
             self.stop_rpc()
 
-    def initialize_scenario_data(self, scenario_name):
-        if scenario_name and self.installation_path:
-            stats_dir = os.path.join(self.installation_path, "stats")
-            self.highscore, new_checked_files = find_initial_scores(scenario_name, stats_dir)
-            self.checked_files.update(new_checked_files)
-
-    def update_presence(self, scenario_name):
+    def update_presence(self, display_name, allowed, raw_name):
         try:
-            if self.installation_path:
+            if not allowed:
+                dp_name = "Unknown Scenario"
+                local_score = 0
+            else:
+                dp_name = display_name
                 stats_dir = os.path.join(self.installation_path, "stats")
-                current_score, found_new_score = find_fight_time_and_score(scenario_name, stats_dir, self.checked_files)
+                current_score, found_new_score = find_fight_time_and_score(
+                    raw_name, stats_dir, self.checked_files
+                )
                 if found_new_score:
                     self.scenario_played = True
                     self.session_highscore = max(self.session_highscore, current_score)
-                else:
-                    if not self.scenario_played:
-                        self.session_highscore = 0
+                elif not self.scenario_played:
+                    self.session_highscore = 0
 
-                online_score = None
-                if self.settings.get("show_online_scores", False) and self.settings.get("webapp_username"):
-                    online_score = self.online_api.get_online_highscore(scenario_name, self.settings["webapp_username"])
+            online_score = None
+            if self.settings.get("show_online_scores") and self.settings.get("webapp_username"):
+                prev_online = self.online_scores.get(dp_name)
+                if prev_online is None:
+                    self.online_scores = self.online_api.fetch_user_scenario_scores(
+                        self.settings.get("webapp_username")
+                    )
+                    prev_online = self.online_scores.get(dp_name)
+                if self.session_highscore and (prev_online is None or self.session_highscore > prev_online):
+                    self.online_scores[dp_name] = self.session_highscore
+                    prev_online = self.session_highscore
+                online_score = prev_online
 
-                update_presence(self.rpc, scenario_name, self.start_time,
-                                self.highscore, self.session_highscore, online_score, self.installation_path)
+            update_presence(
+                self.rpc,
+                dp_name,
+                self.start_time,
+                self.highscore,
+                self.session_highscore,
+                online_score,
+                self.installation_path
+            )
+
         except Exception as e:
             print(f"Error updating presence: {e}")
 
     def on_settings_saved(self, new_settings):
-        from config import save_settings
+        old_username = self.settings.get("webapp_username")
         self.settings = new_settings
         save_settings(new_settings)
 
-        if new_settings.get("installation_path") != self.installation_path:
-            self.initialize_paths()
+
+        if new_settings.get("webapp_username") and new_settings.get("show_online_scores"):
+            if new_settings.get("webapp_username") != old_username:
+                self.online_scores = self.online_api.fetch_user_scenario_scores(new_settings.get("webapp_username"))
 
     def initialize_paths(self):
         try:
@@ -194,15 +262,15 @@ class SystemTrayApp:
             print(f"Error initializing paths: {e}")
 
     def quit_app(self):
+
+        import os
         self.stop_monitoring()
         self.stop_rpc()
 
-        for proc in psutil.process_iter(['name']):
-            try:
-                if proc.info['name'] and proc.info['name'].lower() == 'rpc.exe':
-                    proc.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        self.icon.stop()
 
-        sys.exit(0)
+        try:
+            self.icon.stop()
+        except Exception:
+            pass
+
+        os._exit(0)

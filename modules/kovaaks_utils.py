@@ -17,22 +17,39 @@ def extract_scenario_name(file_path):
     try:
         with open(file_path, 'rb') as file:
             data = file.read()
-            key = b'FullScenarioPath'
+
+
+        keys = [b'FullScenarioPath', b'LastEditProfile']
+        key_pos = -1
+        used_key = None
+
+
+        for key in keys:
             key_pos = data.find(key)
-            if key_pos == -1:
-                return "Unknown Scenario"
-            end = key_pos
-            while end > 0 and (data[end - 1] < 32 or data[end - 1] > 126):
-                end -= 1
-            start = end - 1
-            while start > 0 and 32 <= data[start] <= 126:
-                start -= 1
-            start += 1
-            scenario_name = data[start:end].decode('utf-8')
-            return scenario_name
+            if key_pos != -1:
+                used_key = key
+                break
+
+        if key_pos == -1:
+            return "Unknown Scenario"
+
+        end = key_pos
+        while end > 0 and (data[end - 1] < 32 or data[end - 1] > 126):
+            end -= 1
+
+        start = end - 1
+        while start > 0 and 32 <= data[start] <= 126:
+            start -= 1
+        start += 1
+
+        scenario_name = data[start:end].decode('utf-8', errors='replace')
+        return scenario_name
+
     except Exception as e:
         print(f"Error reading file: {e}")
-    return "Unknown Scenario"
+        return "Unknown Scenario"
+
+
 
 
 def get_current_scenario():
