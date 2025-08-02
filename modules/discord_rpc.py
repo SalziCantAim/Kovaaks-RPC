@@ -18,8 +18,6 @@ def get_playlist_share_code(installation_path):
         raw = raw.split('"shareCode": "')[1].split(r'",\r\n\t"version": ')[0]
         return raw
 
-
-
     except (json.JSONDecodeError, Exception) as e:
         print(f"Error reading playlist file: {e}")
         return None
@@ -39,10 +37,8 @@ def update_presence(rpc, scenario_name, start_time, highscore, session_highscore
 
         details_text = f"Playing: {scenario_name}"
 
-        if online_score is not None:
-            state_text = f"Highscore: {online_score}"
-        else:
-            state_text = f"Highscore: {highscore}"
+
+        state_text = f"Highscore: {highscore}"
 
         buttons = []
         if share_code:
@@ -57,19 +53,23 @@ def update_presence(rpc, scenario_name, start_time, highscore, session_highscore
                 "url": f"steam://run/824270/?action=jump-to-scenario;name={encoded_scenario}"
             })
 
+
+        large_text = f"Session Best: {session_highscore}" if session_highscore > 0 else "No session plays yet"
+
         presence_data = {
             "details": details_text,
             "state": state_text,
             "start": int(start_time) if start_time else None,
             "large_image": "kovaak_image",
-            "large_text": f"Session Best: {session_highscore}",
-            "small_text": f"Session Best: {session_highscore}",
+            "large_text": large_text,
+            "small_text": large_text,
         }
 
         if buttons:
             presence_data["buttons"] = buttons
 
-        print(f"Updating presence for: {scenario_name}")
+        score_type = "online" if online_score is not None else "local"
+        print(f"Updating presence for: {scenario_name} (using {score_type} highscore: {highscore})")
         rpc.update(**presence_data)
 
     except Exception as e:

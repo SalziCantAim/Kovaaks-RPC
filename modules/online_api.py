@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+
 class OnlineScoreAPI:
     CACHE_DIR = os.path.expanduser(os.path.join("~", ".kovaaks_cache"))
     CACHE_TTL = timedelta(weeks=1)
@@ -10,6 +11,8 @@ class OnlineScoreAPI:
     def __init__(self):
         self.base_url = "https://kovaaks.com/webapp-backend"
         os.makedirs(self.CACHE_DIR, exist_ok=True)
+
+        self.local_scores_file = "online_highscores.json"
 
     def _cache_path(self, username):
         safe_user = username.replace("/", "_")
@@ -45,6 +48,40 @@ class OnlineScoreAPI:
                 json.dump(data, f, indent=2)
         except Exception:
             pass
+
+    def load_local_scores(self):
+        if os.path.exists(self.local_scores_file):
+            try:
+                with open(self.local_scores_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data.get('scores', {})
+            except Exception as e:
+                print(f"Error loading local scores: {e}")
+        return {}
+
+    def save_local_scores(self, scores, username):
+        data = {
+            'username': username,
+            'last_updated': datetime.now().isoformat(),
+            'scores': scores
+        }
+        try:
+            with open(self.local_scores_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            print(f"Saved {len(scores)} scores to local file")
+        except Exception as e:
+            print(f"Error saving local scores: {e}")
+
+    def update_local_score(self, scenario_name, new_score, username):
+        local_scores = self.load_local_scores()
+        current_score = local_scores.get(scenario_name, 0)
+
+        if new_score > current_score:
+            local_scores[scenario_name] = new_score
+            self.save_local_scores(local_scores, username)
+            print(f"Updated local score for '{scenario_name}': {current_score} -> {new_score}")
+            return True
+        return False
 
     def fetch_all_pages(self, username, max_per_page=100):
         url = f"{self.base_url}/user/scenario/total-play"
@@ -85,16 +122,51 @@ class OnlineScoreAPI:
     def fetch_user_scenario_scores(self, username):
         if not username:
             return {}
+
+
+        local_scores = self.load_local_scores()
+
+
         cached = self._load_cache(username)
         if cached is not None:
+
+            if not local_scores or len(cached) > len(local_scores):
+                self.save_local_scores(cached, username)
             return cached
+
+
+        print(f"Fetching online scores for user: {username}")
         entries = self.fetch_all_pages(username)
         scores = self.extract_highest_scores(entries)
+
+
         self._save_cache(username, scores)
+        self.save_local_scores(scores, username)
+
         return scores
+
+    def get_online_score(self, username, scenario_name):
+        if not username or not scenario_name:
+            return None
+
+
+        local_scores = self.load_local_scores()
+        if scenario_name in local_scores:
+            return local_scores[scenario_name]
+
+
+        all_scores = self.fetch_user_scenario_scores(username)
+        return all_scores.get(scenario_name)
 
     def is_scenario_available_online(self, username, scenario_name):
         if not username or not scenario_name:
             return False
+
+
+        local_scores = self.load_local_scores()
+        if scenario_name in local_scores:
+            return True
+
+
         scores = self.fetch_user_scenario_scores(username)
         return scenario_name in scores
