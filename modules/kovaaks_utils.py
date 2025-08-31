@@ -71,7 +71,7 @@ def find_initial_scores(scenario_name, stats_directory):
     highscore = 0
     temp_checked_files = set()
     for file_name in os.listdir(stats_directory):
-        if file_name.startswith(scenario_name) and file_name.endswith('.csv'):
+        if file_name.startswith(f"{scenario_name} - ") and file_name.endswith(".csv"):
             file_path = os.path.join(stats_directory, file_name)
             try:
                 with open(file_path, 'r') as file:
@@ -90,7 +90,7 @@ def find_fight_time_and_score(scenario_name, stats_directory, checked_files):
     found_new_score = False
     try:
         for file_name in os.listdir(stats_directory):
-            if file_name.startswith(scenario_name) and file_name.endswith('.csv') and file_name not in checked_files:
+            if file_name == file_name.startswith(f"{scenario_name} - ") and file_name not in checked_files:
                 file_path = os.path.join(stats_directory, file_name)
                 with open(file_path, 'r') as file:
                     for row in file:
@@ -101,4 +101,5 @@ def find_fight_time_and_score(scenario_name, stats_directory, checked_files):
                             checked_files.add(file_name)
     except Exception as e:
         print(f"Error finding fight time and score: {e}")
+
     return round(max_score, 1), found_new_score
